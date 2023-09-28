@@ -35,10 +35,6 @@
 //     for HTTP proxying into the tailnet.
 //   - TS_SOCKET: the path where the tailscaled LocalAPI socket should
 //     be created.
-//   - TS_AUTH_ONCE: if true, only attempt to log in if not already
-//     logged in. If false (the default, for backwards
-//     compatibility), forcibly log in every time the
-//     container starts.
 //   - TS_SERVE_CONFIG: if specified, is the file path where the ipn.ServeConfig is located.
 //     It will be applied once tailscaled is up and running. If the file contains
 //     ${TS_CERT_DOMAIN}, it will be replaced with the value of the available FQDN.
@@ -103,7 +99,6 @@ func main() {
 		SOCKSProxyAddr:  defaultEnv("TS_SOCKS5_SERVER", ""),
 		HTTPProxyAddr:   defaultEnv("TS_OUTBOUND_HTTP_PROXY_LISTEN", ""),
 		Socket:          defaultEnv("TS_SOCKET", "/tmp/tailscaled.sock"),
-		AuthOnce:        defaultBool("TS_AUTH_ONCE", false),
 		Root:            defaultEnv("TS_TEST_ONLY_ROOT", "/"),
 	}
 
@@ -207,12 +202,6 @@ func main() {
 		return nil
 	}
 
-	if !cfg.AuthOnce {
-		if err := authTailscale(); err != nil {
-			log.Fatalf("failed to auth tailscale: %v", err)
-		}
-	}
-
 authLoop:
 	for {
 		n, err := w.Next()
@@ -258,7 +247,7 @@ authLoop:
 		log.Fatalf("failed to unset serve config: %v", err)
 	}
 
-	if cfg.InKubernetes && cfg.KubeSecret != "" && cfg.KubernetesCanPatch && cfg.AuthOnce {
+	if cfg.InKubernetes && cfg.KubeSecret != "" && cfg.KubernetesCanPatch {
 		// We were told to only auth once, so any secret-bound
 		// authkey is no longer needed. We don't strictly need to
 		// wipe it, but it's good hygiene.
@@ -519,8 +508,8 @@ func tailscaledArgs(cfg *settings) []string {
 	return args
 }
 
-// tailscaleLogin uses cfg to run 'tailscale login' everytime containerboot
-// starts, or if TS_AUTH_ONCE is set, only the first time containerboot starts.
+// tailscaleLogin uses cfg to run 'tailscale login' if the node enters
+// NeedsLogin state at startup.
 func tailscaleLogin(ctx context.Context, cfg *settings) error {
 	args := []string{"--socket=" + cfg.Socket, "login"}
 	if cfg.AuthKey != "" {
@@ -771,7 +760,6 @@ type settings struct {
 	SOCKSProxyAddr     string
 	HTTPProxyAddr      string
 	Socket             string
-	AuthOnce           bool
 	Root               string
 	KubernetesCanPatch bool
 }

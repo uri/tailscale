@@ -109,6 +109,9 @@ func TestContainerBoot(t *testing.T) {
 		// contents.
 		WantFiles map[string]string
 	}
+	needsLogin := &ipn.Notify{
+		State: ptr.To(ipn.NeedsLogin),
+	}
 	runningNotify := &ipn.Notify{
 		State: ptr.To(ipn.Running),
 		NetMap: &netmap.NetworkMap{
@@ -132,6 +135,7 @@ func TestContainerBoot(t *testing.T) {
 			Env:  nil,
 			Phases: []phase{
 				{
+					Notify: needsLogin,
 					WantCmds: []string{
 						"/usr/bin/tailscaled --socket=/tmp/tailscaled.sock --state=mem: --statedir=/tmp --tun=userspace-networking",
 						"/usr/bin/tailscale --socket=/tmp/tailscaled.sock login",
