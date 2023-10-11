@@ -229,7 +229,6 @@ type LocalBackend struct {
 	activeLogin      string                 // last logged LoginName from netMap
 	engineStatus     ipn.EngineStatus
 	endpoints        []tailcfg.Endpoint
-	blocked          bool
 	keyExpired       bool
 	authURL          string // cleared on Notify
 	authURLSticky    string // not cleared on Notify
@@ -990,26 +989,10 @@ func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st control
 		}
 	}
 
-	wasBlocked := b.blocked
-	keyExpiryExtended := false
-	if st.NetMap != nil {
-		wasExpired := b.keyExpired
-		isExpired := !st.NetMap.Expiry.IsZero() && st.NetMap.Expiry.Before(b.clock.Now())
-		if wasExpired && !isExpired {
-			keyExpiryExtended = true
-		}
-		b.keyExpired = isExpired
-	}
 	b.mu.Unlock()
 
-	if keyExpiryExtended && wasBlocked {
-		// Key extended, unblock the engine
-		b.blockEngineUpdates(false)
-	}
-
-	if st.LoginFinished() && wasBlocked {
+	if st.LoginFinished() {
 		// Auth completed, unblock the engine
-		b.blockEngineUpdates(false)
 		b.authReconfig()
 		b.send(ipn.Notify{LoginFinished: &empty.Message{}})
 	}
@@ -1041,7 +1024,7 @@ func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st control
 		b.authURL = st.URL
 		b.authURLSticky = st.URL
 	}
-	if wasBlocked && st.LoginFinished() {
+	if st.LoginFinished() {
 		// Interactive login finished successfully (URL visited).
 		// After an interactive login, the user always wants
 		// WantRunning.
@@ -2239,8 +2222,6 @@ func (b *LocalBackend) popBrowserAuthNow() {
 
 	b.logf("popBrowserAuthNow: url=%v", url != "")
 
-	b.blockEngineUpdates(true)
-	b.stopEngineAndWait()
 	b.tellClientToBrowseToURL(url)
 	if b.State() == ipn.Running {
 		b.enterState(ipn.Starting)
@@ -3118,29 +3099,11 @@ func (b *LocalBackend) NetMap() *netmap.NetworkMap {
 	return b.netMap
 }
 
-func (b *LocalBackend) isEngineBlocked() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.blocked
-}
-
-// blockEngineUpdate sets b.blocked to block, while holding b.mu. Its
-// indirect effect is to turn b.authReconfig() into a no-op if block
-// is true.
-func (b *LocalBackend) blockEngineUpdates(block bool) {
-	b.logf("blockEngineUpdates(%v)", block)
-
-	b.mu.Lock()
-	b.blocked = block
-	b.mu.Unlock()
-}
-
 // authReconfig pushes a new configuration into wgengine, if engine
 // updates are not currently blocked, based on the cached netmap and
 // user prefs.
 func (b *LocalBackend) authReconfig() {
 	b.mu.Lock()
-	blocked := b.blocked
 	prefs := b.pm.CurrentPrefs()
 	nm := b.netMap
 	hasPAC := b.prevIfState.HasPAC()
@@ -3149,10 +3112,6 @@ func (b *LocalBackend) authReconfig() {
 	dcfg := dnsConfigForNetmap(nm, b.peers, prefs, b.logf, version.OS())
 	b.mu.Unlock()
 
-	if blocked {
-		b.logf("[v1] authReconfig: blocked, skipping.")
-		return
-	}
 	if nm == nil {
 		b.logf("[v1] authReconfig: netmap not yet valid. Skipping.")
 		return
@@ -3833,8 +3792,6 @@ func (b *LocalBackend) enterStateLockedOnEntry(newState ipn.State) {
 	switch newState {
 	case ipn.NeedsLogin:
 		systemd.Status("Needs login: %s", authURL)
-		b.blockEngineUpdates(true)
-		fallthrough
 	case ipn.Stopped:
 		err := b.e.Reconfig(&wgcfg.Config{}, &router.Config{}, &dns.Config{})
 		if err != nil {
@@ -3896,7 +3853,6 @@ func (b *LocalBackend) nextStateLocked() ipn.State {
 		cc         = b.cc
 		netMap     = b.netMap
 		state      = b.state
-		blocked    = b.blocked
 		st         = b.engineStatus
 		keyExpired = b.keyExpired
 
@@ -3909,7 +3865,7 @@ func (b *LocalBackend) nextStateLocked() ipn.State {
 	}
 
 	switch {
-	case !wantRunning && !loggedOut && !blocked && b.hasNodeKeyLocked():
+	case !wantRunning && !loggedOut && b.hasNodeKeyLocked():
 		return ipn.Stopped
 	case netMap == nil:
 		if (cc != nil && cc.AuthCantContinue()) || loggedOut {
@@ -3974,31 +3930,6 @@ func (b *LocalBackend) RequestEngineStatus() {
 func (b *LocalBackend) stateMachine() {
 	b.mu.Lock()
 	b.enterStateLockedOnEntry(b.nextStateLocked())
-}
-
-// stopEngineAndWait deconfigures the local network data plane, and
-// waits for it to deliver a status update before returning.
-//
-// TODO(danderson): this may be racy. We could unblock upon receiving
-// a status update that predates the "I've shut down" update.
-func (b *LocalBackend) stopEngineAndWait() {
-	b.logf("stopEngineAndWait...")
-	b.e.Reconfig(&wgcfg.Config{}, &router.Config{}, &dns.Config{})
-	b.requestEngineStatusAndWait()
-	b.logf("stopEngineAndWait: done.")
-}
-
-// Requests the wgengine status, and does not return until the status
-// was delivered (to the usual callback).
-func (b *LocalBackend) requestEngineStatusAndWait() {
-	b.logf("requestEngineStatusAndWait")
-
-	b.statusLock.Lock()
-	go b.e.RequestStatus()
-	b.logf("requestEngineStatusAndWait: waiting...")
-	b.statusChanged.Wait() // temporarily releases lock while waiting
-	b.logf("requestEngineStatusAndWait: got status update.")
-	b.statusLock.Unlock()
 }
 
 // resetControlClientLocked sets b.cc to nil and returns the old value. If the

@@ -23,9 +23,10 @@ This command is currently in alpha and may change in the future.`,
 		return newUpFlagSet(effectiveGOOS(), &loginArgs, "login")
 	}(),
 	Exec: func(ctx context.Context, args []string) error {
-		if err := localClient.SwitchToEmptyProfile(ctx); err != nil {
-			return err
-		}
-		return runUp(ctx, "login", args, loginArgs)
+		return localClient.StartLoginInteractive(ctx)
+		// if err := localClient.SwitchToEmptyProfile(ctx); err != nil {
+		// 	return err
+		// }
+		// return runUp(ctx, "login", args, loginArgs)
 	},
 }
