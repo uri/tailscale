@@ -11,7 +11,6 @@ import (
 	"tailscale.com/tsd"
 	"tailscale.com/types/logger"
 	"tailscale.com/wgengine"
-	"tailscale.com/wgengine/netstack"
 	"tailscale.com/wgengine/router"
 )
 
@@ -51,7 +50,7 @@ func TestIsNetstackRouter(t *testing.T) {
 			name: "hybrid_netstack",
 			conf: wgengine.Config{
 				Tun:    newFakeOSTUN(),
-				Router: netstack.NewSubnetRouterWrapper(newFakeOSRouter()),
+				Router: newFakeOSRouter(),
 			},
 			setNetstackRouter: true,
 			want:              true,
