@@ -689,13 +689,13 @@ func installEgressForwardingRule(ctx context.Context, dstStr string, tsIPs []net
 	if !local.IsValid() {
 		return fmt.Errorf("no tailscale IP matching family of %s found in %v", dstStr, tsIPs)
 	}
-	if err := nfr.DNATNonTailscaleTraffic("tailscaleo0", dst); err != nil {
+	if err := nfr.DNATNonTailscaleTraffic("tailscale0", dst); err != nil {
 		return fmt.Errorf("installing egress proxy rules: %w", err)
 	}
 	if err := nfr.AddSNATRuleForDst(local, dst); err != nil {
 		return fmt.Errorf("installing egress proxy rules: %w", err)
 	}
-	if err := nfr.ClampMSSToPMTU("tailscaleo0", dst); err != nil {
+	if err := nfr.ClampMSSToPMTU("tailscale0", dst); err != nil {
 		return fmt.Errorf("installing egress proxy rules: %w", err)
 	}
 	return nil
@@ -723,7 +723,7 @@ func installIngressForwardingRule(ctx context.Context, dstStr string, tsIPs []ne
 	if err := nfr.AddDNATRule(local, dst); err != nil {
 		return fmt.Errorf("installing ingress proxy rules: %w", err)
 	}
-	if err := nfr.ClampMSSToPMTU("tailscaleo0", dst); err != nil {
+	if err := nfr.ClampMSSToPMTU("tailscale0", dst); err != nil {
 		return fmt.Errorf("installing ingress proxy rules: %w", err)
 	}
 	return nil

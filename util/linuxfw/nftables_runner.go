@@ -392,7 +392,7 @@ func isTSChain(name string) bool {
 // createChainIfNotExist creates a chain with the given name in the given table
 // if it does not exist.
 func createChainIfNotExist(c *nftables.Conn, cinfo chainInfo) error {
-	_, err := getChainFromTable(c, cinfo.table, cinfo.name)
+	_, err := getOrCreateChain(c, cinfo)
 	return err
 }
 
