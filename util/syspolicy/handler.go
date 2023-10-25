@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	handlerUsed atomic.Bool
-	handler     Handler = defaultHandler{}
+	PolicyHandlerUsed atomic.Bool
+	PolicyHandler     Handler = defaultHandler{}
 )
 
 // Handler reads system policies from OS-specific storage.
@@ -43,7 +43,7 @@ func (defaultHandler) ReadBoolean(_ string) (bool, error) {
 
 // markHandlerInUse is called before handler methods are called.
 func markHandlerInUse() {
-	handlerUsed.Store(true)
+	PolicyHandlerUsed.Store(true)
 }
 
 // RegisterHandler initializes the policy handler and ensures registration will happen once.
@@ -51,8 +51,8 @@ func RegisterHandler(h Handler) {
 	// Technically this assignment is not concurrency safe, but in the
 	// event that there was any risk of a data race, we will panic due to
 	// the CompareAndSwap failing.
-	handler = h
-	if !handlerUsed.CompareAndSwap(false, true) {
+	PolicyHandler = h
+	if !PolicyHandlerUsed.CompareAndSwap(false, true) {
 		panic("handler was already used before registration")
 	}
 }

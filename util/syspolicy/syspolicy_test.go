@@ -26,9 +26,9 @@ var someOtherError = errors.New("error other than not found")
 
 func setHandlerForTest(tb testing.TB, h Handler) {
 	tb.Helper()
-	oldHandler := handler
-	handler = h
-	tb.Cleanup(func() { handler = oldHandler })
+	oldHandler := PolicyHandler
+	PolicyHandler = h
+	tb.Cleanup(func() { PolicyHandler = oldHandler })
 }
 
 func (th *testHandler) ReadString(key string) (string, error) {

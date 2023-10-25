@@ -11,7 +11,7 @@ import (
 
 func GetString(key Key, defaultValue string) (string, error) {
 	markHandlerInUse()
-	v, err := handler.ReadString(string(key))
+	v, err := PolicyHandler.ReadString(string(key))
 	if errors.Is(err, ErrNoSuchKey) {
 		return defaultValue, nil
 	}
@@ -20,7 +20,7 @@ func GetString(key Key, defaultValue string) (string, error) {
 
 func GetUint64(key Key, defaultValue uint64) (uint64, error) {
 	markHandlerInUse()
-	v, err := handler.ReadUInt64(string(key))
+	v, err := PolicyHandler.ReadUInt64(string(key))
 	if errors.Is(err, ErrNoSuchKey) {
 		return defaultValue, nil
 	}
@@ -29,7 +29,7 @@ func GetUint64(key Key, defaultValue uint64) (uint64, error) {
 
 func GetBoolean(key Key, defaultValue bool) (bool, error) {
 	markHandlerInUse()
-	v, err := handler.ReadBoolean(string(key))
+	v, err := PolicyHandler.ReadBoolean(string(key))
 	if errors.Is(err, ErrNoSuchKey) {
 		return defaultValue, nil
 	}

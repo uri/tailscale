@@ -35,6 +35,7 @@ import (
 	"tailscale.com/util/mak"
 	"tailscale.com/util/must"
 	"tailscale.com/util/set"
+	"tailscale.com/util/syspolicy"
 	"tailscale.com/wgengine"
 	"tailscale.com/wgengine/filter"
 	"tailscale.com/wgengine/wgcfg"
@@ -1329,4 +1330,117 @@ type routeCollector struct {
 func (rc *routeCollector) AdvertiseRoute(pfx netip.Prefix) error {
 	rc.routes = append(rc.routes, pfx)
 	return nil
+}
+
+func setSyspolicyHandlerForTest(tb testing.TB, h syspolicy.Handler) {
+	tb.Helper()
+	oldHandler := syspolicy.PolicyHandler
+	syspolicy.PolicyHandler = h
+	tb.Cleanup(func() {
+		syspolicy.PolicyHandler = oldHandler
+	})
+}
+
+type mockSyspolicyHandler struct {
+	t   *testing.T
+	key syspolicy.Key
+	s   string
+	err error
+}
+
+func (h *mockSyspolicyHandler) ReadString(key string) (string, error) {
+	if key != string(h.key) {
+		return "", h.err
+	}
+	return h.s, h.err
+}
+
+func (h *mockSyspolicyHandler) ReadUInt64(key string) (uint64, error) {
+	return 0, h.err
+}
+
+func (h *mockSyspolicyHandler) ReadBoolean(key string) (bool, error) {
+	return false, h.err
+}
+
+func TestSetExitNodeIDPolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        syspolicy.Key
+		exitNodeID string
+		exitNodeIP string
+		prefs      *ipn.Prefs
+		want       string
+	}{
+		{
+			name:       "ExitNodeID key is set",
+			key:        syspolicy.ExitNodeID,
+			exitNodeID: "123",
+			prefs:      ipn.NewPrefs(),
+			want:       "123",
+		},
+		{
+			name:  "ExitNodeID key not set",
+			key:   syspolicy.ExitNodeID,
+			prefs: ipn.NewPrefs(),
+			want:  "",
+		},
+		{
+			name:       "ExitNodeID key set, ExitNodeIP preference set",
+			key:        syspolicy.ExitNodeID,
+			exitNodeID: "123",
+			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			want:       "123",
+		},
+		{
+			name:       "ExitNodeID key not set, ExitNodeIP key set",
+			key:        syspolicy.ExitNodeIP,
+			exitNodeIP: "127.0.0.1",
+			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			want:       "127.0.0.1",
+		},
+		{
+			name:       "ExitNodeIP key set, existing ExitNodeIP pref",
+			key:        syspolicy.ExitNodeIP,
+			exitNodeIP: "127.0.0.1",
+			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			want:       "127.0.0.1",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			b := newTestBackend(t)
+			var val string
+			if test.key == syspolicy.ExitNodeID {
+				val = test.exitNodeID
+			} else {
+				val = test.exitNodeIP
+			}
+			setSyspolicyHandlerForTest(t, &mockSyspolicyHandler{
+				t:   t,
+				key: test.key,
+				s:   val,
+			})
+			pm := must.Get(newProfileManager(new(mem.Store), t.Logf))
+			pm.prefs = test.prefs.View()
+			must.Do(pm.SetPrefs(pm.prefs.AsStruct().View(), ""))
+			b.pm = pm
+			setExitNodeID(b.pm.prefs.AsStruct(), new(netmap.NetworkMap))
+			b.SetPrefs(pm.CurrentPrefs().AsStruct())
+			switch test.key {
+			case syspolicy.ExitNodeID:
+				got := b.pm.prefs.ExitNodeID()
+				if got != tailcfg.StableNodeID(test.want) {
+					t.Errorf("got %v want %v", got, test.want)
+				}
+			case syspolicy.ExitNodeIP:
+				got := b.pm.prefs.ExitNodeIP()
+				fmt.Printf("helllo %v %v %v", test.name, got, val)
+				if got != netip.MustParseAddr(test.want) {
+					t.Errorf("got %v want %v", got, test.want)
+				}
+			}
+		})
+	}
 }
