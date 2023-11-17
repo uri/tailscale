@@ -1291,7 +1291,7 @@ func (b *LocalBackend) updateNetmapDeltaLocked(muts []netmap.NodeMutation) (hand
 func setExitNodeID(prefs *ipn.Prefs, nm *netmap.NetworkMap) (prefsChanged bool) {
 	if exitNodeIDStr, _ := syspolicy.GetString(syspolicy.ExitNodeID, ""); exitNodeIDStr != "" {
 		exitNodeID := tailcfg.StableNodeID(exitNodeIDStr)
-		if prefs.ExitNodeID != exitNodeID && prefs.ExitNodeIP.IsValid() {
+		if prefs.ExitNodeID != exitNodeID {
 			prefs.ExitNodeID = tailcfg.StableNodeID(exitNodeID)
 			prefs.ExitNodeIP = netip.Addr{}
 			return true

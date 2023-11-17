@@ -1342,15 +1342,26 @@ func setSyspolicyHandlerForTest(tb testing.TB, h syspolicy.Handler) {
 }
 
 type mockSyspolicyHandler struct {
-	t   *testing.T
-	key syspolicy.Key
-	s   string
-	err error
+	t          *testing.T
+	key        syspolicy.Key
+	s          string
+	exitNodeID string
+	exitNodeIP string
+	bothKeys   bool
+	err        error
 }
 
 func (h *mockSyspolicyHandler) ReadString(key string) (string, error) {
 	if key != string(h.key) {
 		return "", h.err
+	}
+	if h.bothKeys { // when both keys are used
+		switch key {
+		case string(syspolicy.ExitNodeID):
+			return h.exitNodeID, h.err
+		case string(syspolicy.ExitNodeIP):
+			return h.exitNodeIP, h.err
+		}
 	}
 	return h.s, h.err
 }
@@ -1364,47 +1375,212 @@ func (h *mockSyspolicyHandler) ReadBoolean(key string) (bool, error) {
 }
 
 func TestSetExitNodeIDPolicy(t *testing.T) {
+	pfx := netip.MustParsePrefix
 	tests := []struct {
-		name       string
-		key        syspolicy.Key
-		exitNodeID string
-		exitNodeIP string
-		prefs      *ipn.Prefs
-		want       string
+		name           string
+		key            syspolicy.Key
+		exitNodeID     string
+		exitNodeIP     string
+		prefs          *ipn.Prefs
+		exitNodeIPWant string
+		exitNodeIDWant string
+		prefsChanged   bool
+		nm             *netmap.NetworkMap
+		bothKeys       bool //indicates if we want to handle both ExitNodeID and ExitNodeIP keys in a test.
 	}{
 		{
-			name:       "ExitNodeID key is set",
-			key:        syspolicy.ExitNodeID,
-			exitNodeID: "123",
-			prefs:      ipn.NewPrefs(),
-			want:       "123",
+			name:           "ExitNodeID key is set",
+			key:            syspolicy.ExitNodeID,
+			exitNodeID:     "123",
+			prefs:          ipn.NewPrefs(),
+			exitNodeIDWant: "123",
+			prefsChanged:   true,
+			nm:             new(netmap.NetworkMap),
 		},
 		{
-			name:  "ExitNodeID key not set",
-			key:   syspolicy.ExitNodeID,
-			prefs: ipn.NewPrefs(),
-			want:  "",
+			name:           "ExitNodeID key not set",
+			key:            syspolicy.ExitNodeID,
+			prefs:          ipn.NewPrefs(),
+			exitNodeIDWant: "",
+			prefsChanged:   false,
+			nm:             new(netmap.NetworkMap),
 		},
 		{
-			name:       "ExitNodeID key set, ExitNodeIP preference set",
-			key:        syspolicy.ExitNodeID,
-			exitNodeID: "123",
-			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
-			want:       "123",
+			name:           "ExitNodeID key set, ExitNodeIP preference set",
+			key:            syspolicy.ExitNodeID,
+			exitNodeID:     "123",
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIDWant: "123",
+			prefsChanged:   true,
+			nm:             new(netmap.NetworkMap),
 		},
 		{
-			name:       "ExitNodeID key not set, ExitNodeIP key set",
-			key:        syspolicy.ExitNodeIP,
-			exitNodeIP: "127.0.0.1",
-			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
-			want:       "127.0.0.1",
+			name:           "ExitNodeID key not set, ExitNodeIP key set",
+			key:            syspolicy.ExitNodeIP,
+			exitNodeIP:     "127.0.0.1",
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIPWant: "127.0.0.1",
+			prefsChanged:   false,
+			nm:             new(netmap.NetworkMap),
 		},
 		{
-			name:       "ExitNodeIP key set, existing ExitNodeIP pref",
-			key:        syspolicy.ExitNodeIP,
-			exitNodeIP: "127.0.0.1",
-			prefs:      &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
-			want:       "127.0.0.1",
+			name:           "ExitNodeIP key set, existing ExitNodeIP pref",
+			key:            syspolicy.ExitNodeIP,
+			exitNodeIP:     "127.0.0.1",
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIPWant: "127.0.0.1",
+			prefsChanged:   false,
+			nm:             new(netmap.NetworkMap),
+		},
+		{
+			name:           "existing preferences match policy",
+			key:            syspolicy.ExitNodeID,
+			exitNodeID:     "123",
+			prefs:          &ipn.Prefs{ExitNodeID: tailcfg.StableNodeID("123")},
+			exitNodeIDWant: "123",
+			prefsChanged:   false,
+			nm:             new(netmap.NetworkMap),
+		},
+		{
+			name:           "ExitNodeIP set if net map does not have corresponding node",
+			key:            syspolicy.ExitNodeIP,
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIP:     "127.0.0.1",
+			exitNodeIPWant: "127.0.0.1",
+			prefsChanged:   false,
+			nm: &netmap.NetworkMap{
+				Name: "foo.tailnet",
+				SelfNode: (&tailcfg.Node{
+					Addresses: []netip.Prefix{
+						pfx("100.102.103.104/32"),
+						pfx("100::123/128"),
+					},
+				}).View(),
+				Peers: []tailcfg.NodeView{
+					(&tailcfg.Node{
+						Name: "a.tailnet",
+						Addresses: []netip.Prefix{
+							pfx("100.0.0.201/32"),
+							pfx("100::201/128"),
+						},
+					}).View(),
+					(&tailcfg.Node{
+						Name: "b.tailnet",
+						Addresses: []netip.Prefix{
+							pfx("100::202/128"),
+						},
+					}).View(),
+				},
+			},
+			bothKeys: true,
+		},
+		{
+			name:           "ExitNodeIP cleared if net map has corresponding node - policy matches prefs",
+			key:            syspolicy.ExitNodeIP,
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIP:     "127.0.0.1",
+			exitNodeID:     "123",
+			exitNodeIPWant: "",
+			exitNodeIDWant: "123",
+			prefsChanged:   true,
+			nm: &netmap.NetworkMap{
+				Name: "foo.tailnet",
+				SelfNode: (&tailcfg.Node{
+					Addresses: []netip.Prefix{
+						pfx("100.102.103.104/32"),
+						pfx("100::123/128"),
+					},
+				}).View(),
+				Peers: []tailcfg.NodeView{
+					(&tailcfg.Node{
+						Name:     "a.tailnet",
+						StableID: tailcfg.StableNodeID("123"),
+						Addresses: []netip.Prefix{
+							pfx("127.0.0.1/32"),
+							pfx("100::201/128"),
+						},
+					}).View(),
+					(&tailcfg.Node{
+						Name: "b.tailnet",
+						Addresses: []netip.Prefix{
+							pfx("100::202/128"),
+						},
+					}).View(),
+				},
+			},
+			bothKeys: true,
+		},
+		{
+			name:           "ExitNodeIP cleared if net map has corresponding node - no policy set",
+			key:            syspolicy.ExitNodeIP,
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIP:     "",
+			exitNodeID:     "123",
+			exitNodeIPWant: "",
+			exitNodeIDWant: "123",
+			prefsChanged:   true,
+			nm: &netmap.NetworkMap{
+				Name: "foo.tailnet",
+				SelfNode: (&tailcfg.Node{
+					Addresses: []netip.Prefix{
+						pfx("100.102.103.104/32"),
+						pfx("100::123/128"),
+					},
+				}).View(),
+				Peers: []tailcfg.NodeView{
+					(&tailcfg.Node{
+						Name:     "a.tailnet",
+						StableID: tailcfg.StableNodeID("123"),
+						Addresses: []netip.Prefix{
+							pfx("127.0.0.1/32"),
+							pfx("100::201/128"),
+						},
+					}).View(),
+					(&tailcfg.Node{
+						Name: "b.tailnet",
+						Addresses: []netip.Prefix{
+							pfx("100::202/128"),
+						},
+					}).View(),
+				},
+			},
+			bothKeys: true,
+		},
+		{
+			name:           "ExitNodeIP cleared if net map has corresponding node - different exit node IP in policy",
+			key:            syspolicy.ExitNodeIP,
+			prefs:          &ipn.Prefs{ExitNodeIP: netip.MustParseAddr("127.0.0.1")},
+			exitNodeIP:     "100.64.5.6",
+			exitNodeID:     "123",
+			exitNodeIPWant: "",
+			exitNodeIDWant: "123",
+			prefsChanged:   true,
+			nm: &netmap.NetworkMap{
+				Name: "foo.tailnet",
+				SelfNode: (&tailcfg.Node{
+					Addresses: []netip.Prefix{
+						pfx("100.102.103.104/32"),
+						pfx("100::123/128"),
+					},
+				}).View(),
+				Peers: []tailcfg.NodeView{
+					(&tailcfg.Node{
+						Name:     "a.tailnet",
+						StableID: tailcfg.StableNodeID("123"),
+						Addresses: []netip.Prefix{
+							pfx("127.0.0.1/32"),
+							pfx("100::201/128"),
+						},
+					}).View(),
+					(&tailcfg.Node{
+						Name: "b.tailnet",
+						Addresses: []netip.Prefix{
+							pfx("100::202/128"),
+						},
+					}).View(),
+				},
+			},
+			bothKeys: true,
 		},
 	}
 
@@ -1418,27 +1594,54 @@ func TestSetExitNodeIDPolicy(t *testing.T) {
 				val = test.exitNodeIP
 			}
 			setSyspolicyHandlerForTest(t, &mockSyspolicyHandler{
-				t:   t,
-				key: test.key,
-				s:   val,
+				t:          t,
+				key:        test.key,
+				s:          val,
+				bothKeys:   test.bothKeys,
+				exitNodeID: test.exitNodeID,
+				exitNodeIP: test.exitNodeIP,
 			})
 			pm := must.Get(newProfileManager(new(mem.Store), t.Logf))
 			pm.prefs = test.prefs.View()
 			must.Do(pm.SetPrefs(pm.prefs.AsStruct().View(), ""))
+			b.netMap = test.nm
 			b.pm = pm
-			setExitNodeID(b.pm.prefs.AsStruct(), new(netmap.NetworkMap))
+			changed := setExitNodeID(b.pm.prefs.AsStruct(), test.nm)
 			b.SetPrefs(pm.CurrentPrefs().AsStruct())
 			switch test.key {
 			case syspolicy.ExitNodeID:
 				got := b.pm.prefs.ExitNodeID()
-				if got != tailcfg.StableNodeID(test.want) {
-					t.Errorf("got %v want %v", got, test.want)
+				if got != tailcfg.StableNodeID(test.exitNodeIDWant) {
+					t.Errorf("got %v want %v", got, test.exitNodeIDWant)
 				}
 			case syspolicy.ExitNodeIP:
 				got := b.pm.prefs.ExitNodeIP()
-				if got != netip.MustParseAddr(test.want) {
-					t.Errorf("got %v want %v", got, test.want)
+				if test.exitNodeIPWant == "" {
+					if got.String() != "invalid IP" {
+						t.Errorf("got %v want invalid IP", got)
+					}
+				} else if got.String() != test.exitNodeIPWant {
+					t.Errorf("got %v want %v", got, test.exitNodeIPWant)
 				}
+			}
+			if test.bothKeys {
+				gotID := b.pm.prefs.ExitNodeID()
+				gotIP := b.pm.prefs.ExitNodeIP()
+				if gotID != tailcfg.StableNodeID(test.exitNodeIDWant) {
+					t.Errorf("got %v want %v", gotID, test.exitNodeIDWant)
+				}
+				if test.exitNodeIPWant == "" {
+					if gotIP.String() != "invalid IP" {
+						t.Errorf("got %v want invalid IP", gotIP)
+					}
+				} else {
+					if gotIP.String() != test.exitNodeIPWant {
+						t.Errorf("got %v want %v", gotIP, test.exitNodeIPWant)
+					}
+				}
+			}
+			if changed != test.prefsChanged {
+				t.Errorf("wanted prefs changed %v, got prefs changed %v", test.prefsChanged, changed)
 			}
 		})
 	}
