@@ -1436,7 +1436,6 @@ func TestSetExitNodeIDPolicy(t *testing.T) {
 				}
 			case syspolicy.ExitNodeIP:
 				got := b.pm.prefs.ExitNodeIP()
-				fmt.Printf("helllo %v %v %v", test.name, got, val)
 				if got != netip.MustParseAddr(test.want) {
 					t.Errorf("got %v want %v", got, test.want)
 				}

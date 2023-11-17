@@ -1291,20 +1291,21 @@ func (b *LocalBackend) updateNetmapDeltaLocked(muts []netmap.NodeMutation) (hand
 func setExitNodeID(prefs *ipn.Prefs, nm *netmap.NetworkMap) (prefsChanged bool) {
 	if exitNodeIDStr, _ := syspolicy.GetString(syspolicy.ExitNodeID, ""); exitNodeIDStr != "" {
 		exitNodeID := tailcfg.StableNodeID(exitNodeIDStr)
-		if prefs.ExitNodeID == exitNodeID && !prefs.ExitNodeIP.IsValid() {
-			return false
+		if prefs.ExitNodeID != exitNodeID && prefs.ExitNodeIP.IsValid() {
+			prefs.ExitNodeID = tailcfg.StableNodeID(exitNodeID)
+			prefs.ExitNodeIP = netip.Addr{}
+			return true
 		}
-		prefs.ExitNodeID = tailcfg.StableNodeID(exitNodeID)
-		prefs.ExitNodeIP = netip.Addr{}
-		return true
 	}
 
+	var oldExitNodeID tailcfg.StableNodeID
 	if exitNodeIPStr, _ := syspolicy.GetString(syspolicy.ExitNodeIP, ""); exitNodeIPStr != "" {
 		exitNodeIP, err := netip.ParseAddr(exitNodeIPStr)
 		if !exitNodeIP.IsValid() && err == nil {
 			if prefs.ExitNodeID == "" && prefs.ExitNodeIP == exitNodeIP {
 				return false
 			}
+			oldExitNodeID = prefs.ExitNodeID
 			prefs.ExitNodeID = ""
 			prefs.ExitNodeIP = exitNodeIP
 			prefsChanged = true
@@ -1338,6 +1339,9 @@ func setExitNodeID(prefs *ipn.Prefs, nm *netmap.NetworkMap) (prefsChanged bool) 
 			// reference it directly for next time.
 			prefs.ExitNodeID = peer.StableID()
 			prefs.ExitNodeIP = netip.Addr{}
+			if oldExitNodeID == prefs.ExitNodeID {
+				return false
+			}
 			return true
 		}
 	}
