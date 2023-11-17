@@ -51,6 +51,7 @@ import (
 	"tailscale.com/paths"
 	"tailscale.com/safesocket"
 	"tailscale.com/syncs"
+	"tailscale.com/tailfs"
 	"tailscale.com/tsd"
 	"tailscale.com/tsweb/varz"
 	"tailscale.com/types/flagtype"
@@ -229,7 +230,15 @@ func main() {
 		return
 	}
 
-	err := run()
+	_, err := tailfs.Start(&tailfs.Opts{
+		StateDir:    "/home/oxtoacart/samba",
+		SMBDCommand: "/usr/sbin/smbd",
+	})
+	if err != nil {
+		log.Fatalf("start tailfs: %v", err)
+	}
+
+	err = run()
 
 	// Remove file sharing from Windows shell (noop in non-windows)
 	osshare.SetFileSharingEnabled(false, logger.Discard)
